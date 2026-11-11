@@ -51,20 +51,65 @@ pipeline {
             }
         }
 
-        stage('Terraform Plan') {
-            steps {
-                dir('terraform') {
-                    withEnv(["TF_VAR_my_ip=${params.SSH_CIDR}"]) {
-                        sh '''
-                            terraform plan \
-                              -input=false \
-                              -no-color \
-                              -out=tfplan
-                        '''
-                    }
+
+	stage('Terraform Plan') {
+	    steps {
+	        dir('terraform') {
+	            withEnv(["TF_VAR_my_ip=${params.SSH_CIDR}"]) {
+	                sh '''
+	                    terraform plan \
+	                      -input=false \
+	                      -no-color \
+	                      -out=tfplan
+
+	                    terraform show -no-color tfplan
+	                '''
+	            }
+	        }
+	    }
+	}
+
+	stage('Approve Terraform Apply') {
+            when {
+                expression {
+                    return params.APPLY_TERRAFORM &&
+                        currentBuild.getBuildCauses(
+                            'hudson.model.Cause$UserIdCause'
+                        ).size() > 0
                 }
-            }
         }
+	    steps {
+	        timeout(time: 10, unit: 'MINUTES') {
+	            input(
+	                message: 'Review the Terraform plan before applying infrastructure changes.',
+	                ok: 'Approve Terraform Apply',
+	                submitter: 'jenkins'
+	            )
+	        }
+	    }
+	}
+
+
+	stage('Terraform Apply') {
+	    when {
+	        expression {
+	            return params.APPLY_TERRAFORM &&
+	                currentBuild.getBuildCauses(
+	                    'hudson.model.Cause$UserIdCause'
+	                ).size() > 0
+	        }
+	}
+	    steps {
+	        dir('terraform') {
+	            sh '''
+	                terraform apply \
+	                  -input=false \
+	                  -no-color \
+	                  tfplan
+	            '''
+	        }
+	    }
+	}
 
         stage('Ansible Configuration') {
             steps {
@@ -110,13 +155,19 @@ pipeline {
         }
     }
 
-    parameters {
-        string(
-            name: 'SSH_CIDR',
-            defaultValue: '102.216.182.224/32',
-            description: 'Approved public IP CIDR for EC2 SSH access'
-        )
-    }
+	parameters {
+	    string(
+	        name: 'SSH_CIDR',
+	        defaultValue: '102.216.182.224/32',
+	        description: 'Approved public IP CIDR for EC2 SSH access'
+	    )
+
+	    booleanParam(
+	        name: 'APPLY_TERRAFORM',
+	        defaultValue: false,
+	        description: 'Request approval before applying Terraform changes'
+	    )
+	}
 
     post {
         success {

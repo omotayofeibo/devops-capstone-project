@@ -46,6 +46,11 @@ resource "aws_instance" "capstone_server" {
   vpc_security_group_ids = [aws_security_group.capstone_sg.id]
   iam_instance_profile   = "DevOpsCapstoneJenkinsRole"
 
+  lifecycle {
+    prevent_destroy = true
+  }
+
+
   root_block_device {
     volume_size = 20
     volume_type = "gp3"
