@@ -2,6 +2,17 @@
 pipeline {
     agent any
 
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        AWS_DEFAULT_REGION = 'us-east-1'
+        TF_IN_AUTOMATION = 'true'
+        TF_INPUT = 'false'
+    }
+
     stages {
         stage('Checkout') {
             steps {
@@ -17,7 +28,47 @@ pipeline {
                     mvn -version
                     docker --version
                     docker compose version
+                    terraform version
+                    ansible-playbook --version
+                    aws sts get-caller-identity
                 '''
+            }
+        }
+
+        stage('Terraform Init') {
+            steps {
+                dir('terraform') {
+                    sh 'terraform init -input=false -no-color'
+                }
+            }
+        }
+
+        stage('Terraform Validate') {
+            steps {
+                dir('terraform') {
+                    sh 'terraform validate -no-color'
+                }
+            }
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                dir('terraform') {
+                    withEnv(["TF_VAR_my_ip=${params.SSH_CIDR}"]) {
+                        sh '''
+                            terraform plan \
+                              -input=false \
+                              -no-color \
+                              -out=tfplan
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Ansible Configuration') {
+            steps {
+                sh 'sudo -n /usr/local/sbin/run-capstone-ansible'
             }
         }
 
@@ -31,9 +82,7 @@ pipeline {
 
         stage('Build Docker Images') {
             steps {
-                sh '''
-                    docker compose -p devops-capstone build
-                '''
+                sh 'docker compose -p devops-capstone build'
             }
         }
 
@@ -50,8 +99,10 @@ pipeline {
             steps {
                 sh '''
                     docker compose -p devops-capstone ps
+
                     curl --fail --silent --show-error \
                       http://127.0.0.1:8081/ > /dev/null
+
                     curl --fail --silent --show-error \
                       http://127.0.0.1:8082/ > /dev/null
                 '''
@@ -59,9 +110,17 @@ pipeline {
         }
     }
 
+    parameters {
+        string(
+            name: 'SSH_CIDR',
+            defaultValue: '102.216.182.224/32',
+            description: 'Approved public IP CIDR for EC2 SSH access'
+        )
+    }
+
     post {
         success {
-            echo 'CI/CD pipeline completed successfully!'
+            echo 'Terraform, Ansible and application deployment completed successfully!'
         }
 
         failure {
