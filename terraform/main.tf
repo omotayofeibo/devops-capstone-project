@@ -44,6 +44,7 @@ resource "aws_instance" "capstone_server" {
   instance_type          = var.instance_type
   key_name               = var.key_name
   vpc_security_group_ids = [aws_security_group.capstone_sg.id]
+  iam_instance_profile   = "DevOpsCapstoneJenkinsRole"
 
   root_block_device {
     volume_size = 20
